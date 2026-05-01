@@ -1,0 +1,163 @@
+{
+  "project_name": "Premium Bilingual Ride-Hailing App",
+  "theme_and_archetype": {
+    "domain": "Ride-Hailing / Mobility",
+    "theme": "Dark and Light Mode Supported",
+    "archetype": "Archetype 4 (Swiss & High-Contrast) + Premium Fusion",
+    "description": "An ultra-modern, VC-funded startup aesthetic. It relies heavily on high contrast, deep neutral bases, a vibrant Electric Blue accent for interactive elements, and glassmorphism. It uses expansive negative space, soft ambient shadows, and crisp typography to feel app-store-ready and luxurious."
+  },
+  "colors": {
+    "light": {
+      "background": "#FFFFFF",
+      "surface": "#F7F8FA",
+      "surface_elevated": "#FFFFFF",
+      "primary": "#0066FF",
+      "primary_active": "#0052CC",
+      "text_primary": "#0A0A0A",
+      "text_secondary": "#6B7280",
+      "border": "#E5E7EB",
+      "success": "#10B981",
+      "error": "#EF4444",
+      "map_overlay": "rgba(255, 255, 255, 0.85)"
+    },
+    "dark": {
+      "background": "#050505",
+      "surface": "#121212",
+      "surface_elevated": "#1C1C1E",
+      "primary": "#2563EB",
+      "primary_active": "#3B82F6",
+      "text_primary": "#FFFFFF",
+      "text_secondary": "#A1A1AA",
+      "border": "#27272A",
+      "success": "#10B981",
+      "error": "#F87171",
+      "map_overlay": "rgba(10, 10, 10, 0.85)"
+    }
+  },
+  "typography": {
+    "fonts": {
+      "english": {
+        "primary": "Inter",
+        "fallback": "System (SF Pro / Roboto)"
+      },
+      "arabic": {
+        "primary": "Tajawal",
+        "fallback": "Cairo"
+      }
+    },
+    "scales": {
+      "h1": "text-4xl font-black tracking-tight",
+      "h2": "text-3xl font-bold tracking-tight",
+      "h3": "text-2xl font-bold",
+      "h4": "text-xl font-semibold",
+      "body": "text-base font-normal leading-relaxed",
+      "label": "text-sm font-medium tracking-wide",
+      "caption": "text-xs font-medium text-secondary"
+    },
+    "guidelines": {
+      "arabic_optimization": "Arabic fonts must have slightly higher line-height (leading-loose) compared to English due to the diacritics and ascenders/descenders.",
+      "hierarchy": "Use bold weights (700-900) for active trip states, prices, and headings. Use medium (500) for labels. Avoid Light weights in mobile UI for legibility."
+    }
+  },
+  "spacing_and_layout": {
+    "system": "Tailwind standard scale with native safe area paddings.",
+    "screen_padding": "px-6",
+    "element_gap": "gap-4",
+    "border_radius": {
+      "small": "rounded-lg",
+      "medium": "rounded-2xl (For standard cards, inputs)",
+      "large": "rounded-[32px] (For Bottom Sheets, map overlays)",
+      "full": "rounded-full (For FABs, avatars)"
+    },
+    "safe_areas": "Use react-native-safe-area-context for top/bottom margins. Bottom sheets must overlap safe area bottom with extra padding."
+  },
+  "components": {
+    "bottom_sheet": {
+      "style": "Glassmorphism preferred. Use expo-blur (BlurView) combined with a semi-transparent surface color.",
+      "shadow": "shadow-[0_-8px_30px_rgba(0,0,0,0.12)] in Light mode, shadow-[0_-8px_30px_rgba(0,0,0,0.5)] in Dark mode.",
+      "indicator": "w-12 h-1.5 rounded-full bg-border/50 self-center mt-3 mb-4"
+    },
+    "buttons": {
+      "primary": {
+        "classes": "w-full h-14 rounded-2xl bg-primary flex items-center justify-center shadow-lg shadow-primary/30",
+        "text": "text-white text-lg font-bold"
+      },
+      "fab": {
+        "classes": "w-14 h-14 rounded-full bg-surface_elevated shadow-xl items-center justify-center border border-border/50",
+        "position": "absolute bottom-32 right-6"
+      },
+      "ride_option_card": {
+        "default": "border border-border/50 bg-surface rounded-2xl p-4 flex-row items-center justify-between",
+        "selected": "border-2 border-primary bg-primary/5 rounded-2xl p-4 flex-row items-center justify-between"
+      }
+    },
+    "inputs": {
+      "floating_label": "Use floating labels for pickup/drop-off. Background must match the surface. Height 60px, rounded-2xl, border border-border focus:border-primary focus:border-2."
+    },
+    "map": {
+      "style": "Full screen absolute map. In dark mode, use a customized dark map tile URL for OSM or react-native-maps standard dark mode. No UI clutter. Overlays must float above it."
+    }
+  },
+  "animations": {
+    "library_recommendation": "react-native-reanimated and moti",
+    "interactions": [
+      {
+        "element": "Buttons / Cards",
+        "effect": "Scale down to 0.97 on press (Pressable with animated style)."
+      },
+      {
+        "element": "Driver Marker",
+        "effect": "Smooth interpolation (timing/spring) between GPS coordinates."
+      },
+      {
+        "element": "Searching for Driver",
+        "effect": "Concentric circle pulse effect using Moti from the center of the map or user location."
+      },
+      {
+        "element": "Screen Transitions",
+        "effect": "Use Expo Router default native stack sliding transitions. Modals should slide from bottom."
+      }
+    ]
+  },
+  "rtl_guidelines": {
+    "layout": "Rely on React Native's I18nManager. Flex direction automatically flips for `flex-row`. Explicitly use `marginStart` and `marginEnd` instead of `marginLeft` and `marginRight`.",
+    "icons": "Directional icons (like back arrows) must flip when `I18nManager.isRTL` is true. E.g. `<Icon style={{ transform: [{ scaleX: I18nManager.isRTL ? -1 : 1 }] }} />`",
+    "text_alignment": "Set `textAlign: 'left'` for default alignment, React Native handles the flip to right automatically in RTL. Do not hardcode 'right'."
+  },
+  "media": {
+    "avatars": [
+      {
+        "category": "Driver Avatar Placeholder",
+        "url": "https://images.unsplash.com/photo-1718434137166-b3cb7d944b27?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njl8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBkcml2ZXIlMjBwb3J0cmFpdHxlbnwwfHx8fDE3Nzc2NzM1MjV8MA&ixlib=rb-4.1.0&q=85"
+      },
+      {
+        "category": "Customer Avatar Placeholder",
+        "url": "https://images.pexels.com/photos/16702626/pexels-photo-16702626.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+      }
+    ],
+    "maps": [
+      {
+        "category": "Map Background Dark",
+        "url": "https://images.unsplash.com/photo-1690473252779-24d7e8f03e2d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHwxfHxjaXR5JTIwbWFwJTIwbmlnaHQlMjB2aWV3JTIwYWVyaWFsfGVufDB8fHx8MTc3NzY3MzUyNXww&ixlib=rb-4.1.0&q=85"
+      }
+    ],
+    "cars": [
+      {
+        "category": "Economy Ride Icon",
+        "url": "https://images.unsplash.com/photo-1756990688487-38fea20c395b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzd8MHwxfHNlYXJjaHwzfHxsdXh1cnklMjBjYXIlMjBzaWRlJTIwdmlld3xlbnwwfHx8fDE3Nzc2NzM1MzV8MA&ixlib=rb-4.1.0&q=85"
+      },
+      {
+        "category": "Premium Ride Icon",
+        "url": "https://images.unsplash.com/photo-1618480483701-c31ac5590db4?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzd8MHwxfHNlYXJjaHwxfHxsdXh1cnklMjBjYXIlMjBzaWRlJTIwdmlld3xlbnwwfHx8fDE3Nzc2NzM1MzV8MA&ixlib=rb-4.1.0&q=85"
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Build this app using Expo React Native, strictly utilizing native components (View, Text, Pressable, ScrollView) combined with styling (NativeWind / StyleSheet).",
+    "For icons, use @expo/vector-icons (Feather or Ionicons) to maintain the clean app vibe.",
+    "Ensure I18nManager is configured for Arabic (RTL) out of the box. Use logical spacing (marginStart/End) globally.",
+    "Map implementation should use react-native-maps. Bottom sheet MUST float over it smoothly. Use @gorhom/bottom-sheet if possible, else a reanimated custom sheet.",
+    "All interactive elements MUST have a data-testid for automated testing.",
+    "The UI should look like a $1B VC funded startup: high padding, soft shadows, rounded corners, zero clutter."
+  ]
+}
