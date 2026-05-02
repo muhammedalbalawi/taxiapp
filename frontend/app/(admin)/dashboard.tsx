@@ -5,10 +5,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../../src/AppContext';
 import { api } from '../../src/api';
 import { radii } from '../../src/theme';
+import { formatPrice, formatNumber } from '../../src/format';
 
 export default function AdminDashboard() {
-  const { colors, t, sessionToken } = useApp();
-  const [stats, setStats] = useState<any>({ users: 0, drivers: 0, customers: 0, trips: 0, completed: 0, revenue: 0 });
+  const { colors, t, lang, sessionToken } = useApp();
+  const [stats, setStats] = useState<any>({ users: 0, drivers: 0, customers: 0, online_drivers: 0, trips: 0, completed: 0, revenue: 0 });
 
   useEffect(() => {
     (async () => {
@@ -33,17 +34,17 @@ export default function AdminDashboard() {
 
         <View style={[styles.hero, { backgroundColor: colors.primary }]}>
           <Text style={styles.heroLabel}>{t('total_revenue')}</Text>
-          <Text style={styles.heroValue}>${stats.revenue.toFixed(2)}</Text>
-          <Text style={styles.heroSub}>{stats.completed} {t('trips_count').toLowerCase()}</Text>
+          <Text style={styles.heroValue}>{formatPrice(stats.revenue, lang)}</Text>
+          <Text style={styles.heroSub}>{formatNumber(stats.completed, lang)} {t('trips_count').toLowerCase()}</Text>
         </View>
 
         <View style={styles.grid}>
-          <Stat label={t('customers_count')} value={stats.customers} icon="people" color={colors.primary} />
-          <Stat label={t('active_drivers')} value={stats.drivers} icon="car-sport" color={colors.success} />
+          <Stat label={t('customers_count')} value={formatNumber(stats.customers, lang)} icon="people" color={colors.primary} />
+          <Stat label={t('active_drivers')} value={formatNumber(stats.drivers, lang)} icon="car-sport" color={colors.success} />
         </View>
         <View style={styles.grid}>
-          <Stat label={t('trips_count')} value={stats.trips} icon="map" color="#F59E0B" />
-          <Stat label="Completed" value={stats.completed} icon="checkmark-circle" color={colors.primary} />
+          <Stat label={t('online_drivers')} value={formatNumber(stats.online_drivers, lang)} icon="radio" color="#10B981" />
+          <Stat label={t('trips_count')} value={formatNumber(stats.trips, lang)} icon="map" color="#F59E0B" />
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -55,11 +56,11 @@ const styles = StyleSheet.create({
   title: { fontSize: 34, fontWeight: '900', letterSpacing: -0.5, marginBottom: 20 },
   hero: { padding: 28, borderRadius: radii.xl, marginBottom: 16 },
   heroLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 14, fontWeight: '600' },
-  heroValue: { color: '#fff', fontSize: 44, fontWeight: '900', marginTop: 6, letterSpacing: -1 },
+  heroValue: { color: '#fff', fontSize: 40, fontWeight: '900', marginTop: 6, letterSpacing: -1 },
   heroSub: { color: 'rgba(255,255,255,0.8)', fontSize: 14, marginTop: 4 },
   grid: { flexDirection: 'row', gap: 12, marginBottom: 12 },
   stat: { flex: 1, padding: 18, borderRadius: radii.lg, borderWidth: 1, marginEnd: 6, marginStart: 6 },
   statIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
-  statValue: { fontSize: 26, fontWeight: '800' },
+  statValue: { fontSize: 24, fontWeight: '800' },
   statLabel: { fontSize: 12, fontWeight: '600', marginTop: 4 },
 });

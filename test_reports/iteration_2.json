@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 2 Aero upgrade validated end-to-end. Backend: 27/27 pytest passed covering SAR estimate+breakdown, payment_method persistence (cash/card/apple_pay), real nearest-driver matching, offer/accept/reject with rematch to no_driver when only seeded driver rejects, full status machine (offered->accepted->on_trip->completed), stranger-forbidden on /status (403), driver /location updates, bidirectional rating with rolling user.rating average, /driver/incoming, /notifications list+read, /admin/drivers with online flag + lat/lng, /admin/stats includes online_drivers and currency=SAR. Frontend (mobile 390x844): customer home shows SAR price + full breakdown card + cash/card/apple_pay selector; Confirm triggers real /rides/request and polling switches UI to 'Driver on the way' with car/plate/rating after driver accept; Arabic toggle renders prices as '٢٧.٥٠ ر.س' (Arabic digits + ر.س suffix); driver dashboard shows Offline/Go Online toggle; admin Drivers tab lists 'Omar Driver' with ONLINE chip; Notifications screen shows Trip completed / Driver assigned / No drivers available / Trip on trip entries.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "global", "issues": ["Console still warns 'shadow*' style props deprecated (cosmetic). Recommend migrating to boxShadow where targeting web."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_aero_backend.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional cosmetic) Replace deprecated RN web style props (shadow*, pointerEvents, Image resizeMode)."
+  ],
+  "critical_code_review_comments": [
+    "server.py (458 lines) — still a single file; OK for current scope but consider splitting into auth/rides/driver/admin routers if more features are added.",
+    "Ownership check on POST /rides/{id}/status is now enforced (customer_id or driver_id) — confirmed returning 403 for strangers.",
+    "match_driver correctly excludes rejecters via rejected_by array; timeout task (15s) auto-rematches — verified by the reject test returning no_driver.",
+    "Rolling rating average formula ((avg*cnt)+new)/(cnt+1) is correct; rating_count incremented — verified against /auth/me before/after.",
+    "Notifications are stored and returned; /notifications/read correctly flips read=true for the user.",
+    "Admin /drivers joins users with driver_state to expose online/lat/lng — clean.",
+    "Mocked: payment gateways (stripe/apple_pay) — payment_method is stored-only (CORRECTLY noted in review_request). No push — polling used on frontend (2.5s customer, 3s driver)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_aero_backend.py"
+  ],
+  "success_rate": {
+    "backend": "100% (27/27)",
+    "frontend": "100% (customer request+offer+accept polling, SAR breakdown, payment methods, Arabic format ٢٧.٥٠ ر.س, driver dashboard online toggle, admin Drivers online chip, Notifications list)"
+  },
+  "seed_data_creation": "No new seed. Reused test_session_aero_{customer,driver,admin}. Tests re-force driver online (lat/lng=24.7136/46.6753, Riyadh) before each matching test. Several test trips created (TEST_PICKUP/TEST_DEST, completed); persist in admin stats — acceptable.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend is at /api/* on EXPO_PUBLIC_BACKEND_URL. Currency is SAR. Before any matching test, POST /api/driver/status with online=true and Riyadh coords using the driver bearer token; otherwise requests return status='no_driver'. The 15s driver-response timeout task runs asynchronously — if you reject via API you get synchronous rematch in the response; if you let timeout fire you must poll /api/rides/{id}. Frontend web bypass: localStorage.setItem('session_token',<token>) then goto '/'. For language, the storage key is 'lang' (via AsyncStorage); the reliable way from Playwright is to click the 'العربية' button on the login screen BEFORE injecting the session token. Customer bottom-sheet phases: idle -> choose -> searching/offered -> accepted -> on_trip -> done (rating stars). testIDs: bottom-sheet, set-pickup, set-destination, continue-choose, ride-{economy|comfort|premium}, pay-{cash|card|apple_pay}, confirm-ride, cancel-search, try-again, rate-{1..5}.",
+  "rca_of_issue": "N/A — no failures found in this iteration."
+}

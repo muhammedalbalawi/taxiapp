@@ -21,6 +21,7 @@ export default function AdminLayout() {
           const name =
             route.name === 'dashboard' ? 'stats-chart'
             : route.name === 'users' ? 'people'
+            : route.name === 'drivers' ? 'car-sport'
             : route.name === 'trips' ? 'car'
             : 'person-circle';
           return <Ionicons name={name as any} size={size} color={color} />;
@@ -28,6 +29,7 @@ export default function AdminLayout() {
       })}
     >
       <Tabs.Screen name="dashboard" options={{ title: t('dashboard') }} />
+      <Tabs.Screen name="drivers" options={{ title: t('drivers') }} />
       <Tabs.Screen name="users" options={{ title: t('users') }} />
       <Tabs.Screen name="trips" options={{ title: t('trips') }} />
       <Tabs.Screen name="profile" options={{ title: t('profile') }} />
