@@ -21,7 +21,10 @@ EMERGENT_AUTH_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/ses
 DRIVER_RESPONSE_TIMEOUT_SEC = 15
 
 Role = Literal["customer", "driver", "admin"]
-PaymentMethod = Literal["cash", "card", "apple_pay"]
+PaymentMethod = Literal["cash", "card", "apple_pay", "stc_pay"]
+
+# Currency conversion (fixed rates for demo — SAR base)
+FX_RATES = {"SAR": 1.0, "USD": 0.267, "EUR": 0.243, "AED": 0.98, "GBP": 0.209}
 
 
 class User(BaseModel):
@@ -32,6 +35,21 @@ class User(BaseModel):
     role: Role = "customer"
     rating: float = 5.0
     rating_count: int = 0
+    phone: Optional[str] = None
+    phone_verified: bool = False
+    email_verified: bool = False
+    currency: str = "SAR"
+    notif_prefs: Dict[str, bool] = Field(default_factory=lambda: {"rides": True, "payments": True, "security": True, "promos": False})
+    two_factor: bool = False
+    pin_set: bool = False
+    blocked_users: List[str] = Field(default_factory=list)
+    # Driver fields
+    car_make: Optional[str] = None
+    car_model: Optional[str] = None
+    plate: Optional[str] = None
+    license_image: Optional[str] = None  # base64
+    id_image: Optional[str] = None  # base64
+    verified: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -106,6 +124,11 @@ async def current_user(req: Request) -> User:
     u = await db.users.find_one({"user_id": s["user_id"]}, {"_id": 0})
     if not u: raise HTTPException(401, "User not found")
     u.setdefault("rating", 5.0); u.setdefault("rating_count", 0)
+    u.setdefault("currency", "SAR")
+    u.setdefault("notif_prefs", {"rides": True, "payments": True, "security": True, "promos": False})
+    u.setdefault("blocked_users", [])
+    u.setdefault("phone_verified", False); u.setdefault("email_verified", False)
+    u.setdefault("two_factor", False); u.setdefault("pin_set", False); u.setdefault("verified", False)
     return User(**u)
 
 
@@ -444,11 +467,410 @@ async def admin_trips(req: Request):
     return await db.trips.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
 
 
-@api_router.get("/")
-async def root(): return {"message": "Aero Ride API", "status": "ok", "currency": "SAR"}
+# ---------- Profile ----------
+class ProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    picture: Optional[str] = None  # base64
+    currency: Optional[str] = None
+    notif_prefs: Optional[Dict[str, bool]] = None
+
+
+@api_router.post("/profile/update")
+async def profile_update(body: ProfileUpdate, req: Request):
+    u = await current_user(req)
+    upd = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "currency" in upd and upd["currency"] not in FX_RATES:
+        raise HTTPException(400, "Unsupported currency")
+    if upd:
+        await db.users.update_one({"user_id": u.user_id}, {"$set": upd})
+    return {"ok": True}
+
+
+
+
+
+class DriverProfileIn(BaseModel):
+    car_make: Optional[str] = None
+    car_model: Optional[str] = None
+    plate: Optional[str] = None
+    license_image: Optional[str] = None
+    id_image: Optional[str] = None
+
+
+@api_router.post("/profile/driver")
+async def update_driver_profile(body: DriverProfileIn, req: Request):
+    u = await current_user(req)
+    if u.role != "driver":
+        raise HTTPException(403, "Driver only")
+    upd = {k: v for k, v in body.model_dump().items() if v is not None}
+    # Consider verified when essentials present
+    if "license_image" in upd and "id_image" in upd:
+        upd["verified"] = True
+    await db.users.update_one({"user_id": u.user_id}, {"$set": upd})
+    return {"ok": True, "verified": upd.get("verified", u.verified)}
+
+
+# ---------- OTP (simulated) ----------
+@api_router.post("/auth/otp/send")
+async def otp_send(body: dict, req: Request):
+    u = await current_user(req)
+    channel = body.get("channel", "phone")
+    code = f"{uuid.uuid4().int % 1000000:06d}"
+    await db.otp_codes.update_one(
+        {"user_id": u.user_id, "channel": channel},
+        {"$set": {"user_id": u.user_id, "channel": channel, "code": code,
+                  "expires_at": datetime.now(timezone.utc) + timedelta(minutes=5)}},
+        upsert=True,
+    )
+    # Dev: return code (in prod, SMS/email it)
+    return {"ok": True, "dev_code": code, "message": "OTP sent"}
+
+
+@api_router.post("/auth/otp/verify")
+async def otp_verify(body: dict, req: Request):
+    u = await current_user(req)
+    channel = body.get("channel", "phone")
+    code = body.get("code", "")
+    rec = await db.otp_codes.find_one({"user_id": u.user_id, "channel": channel}, {"_id": 0})
+    if not rec or rec["code"] != code:
+        raise HTTPException(400, "Invalid code")
+    exp = rec["expires_at"]
+    if isinstance(exp, str): exp = datetime.fromisoformat(exp)
+    if exp.tzinfo is None: exp = exp.replace(tzinfo=timezone.utc)
+    if exp < datetime.now(timezone.utc):
+        raise HTTPException(400, "Code expired")
+    field = "phone_verified" if channel == "phone" else "email_verified"
+    await db.users.update_one({"user_id": u.user_id}, {"$set": {field: True}})
+    await db.otp_codes.delete_one({"user_id": u.user_id, "channel": channel})
+    return {"ok": True, "verified": True}
+
+
+# ---------- Security ----------
+import hashlib
+
+
+class PinIn(BaseModel):
+    pin: str
+
+
+@api_router.post("/auth/pin/set")
+async def set_pin(body: PinIn, req: Request):
+    u = await current_user(req)
+    if len(body.pin) < 4: raise HTTPException(400, "PIN too short")
+    h = hashlib.sha256(body.pin.encode()).hexdigest()
+    await db.users.update_one({"user_id": u.user_id}, {"$set": {"pin_hash": h, "pin_set": True}})
+    return {"ok": True}
+
+
+@api_router.post("/auth/pin/verify")
+async def verify_pin(body: PinIn, req: Request):
+    u = await current_user(req)
+    user_doc = await db.users.find_one({"user_id": u.user_id}, {"_id": 0})
+    if not user_doc.get("pin_hash"): raise HTTPException(400, "PIN not set")
+    if user_doc["pin_hash"] != hashlib.sha256(body.pin.encode()).hexdigest():
+        await db.security_events.insert_one({
+            "user_id": u.user_id, "kind": "pin_failed",
+            "at": datetime.now(timezone.utc),
+        })
+        raise HTTPException(401, "Invalid PIN")
+    return {"ok": True}
+
+
+@api_router.post("/auth/2fa")
+async def toggle_2fa(body: dict, req: Request):
+    u = await current_user(req)
+    await db.users.update_one({"user_id": u.user_id}, {"$set": {"two_factor": bool(body.get("enabled"))}})
+    return {"ok": True, "two_factor": bool(body.get("enabled"))}
+
+
+@api_router.post("/auth/logout-all")
+async def logout_all(req: Request, resp: Response):
+    u = await current_user(req)
+    await db.user_sessions.delete_many({"user_id": u.user_id})
+    resp.delete_cookie("session_token", path="/")
+    await notify(u.user_id, "security", "Logged out everywhere", "All devices have been signed out.")
+    return {"ok": True}
+
+
+@api_router.get("/auth/sessions")
+async def sessions(req: Request):
+    u = await current_user(req)
+    out = await db.user_sessions.find({"user_id": u.user_id}, {"_id": 0, "session_token": 0}).to_list(50)
+    return out
+
+
+# ---------- Safety ----------
+class SOSIn(BaseModel):
+    trip_id: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+
+
+@api_router.post("/safety/sos")
+async def sos(body: SOSIn, req: Request):
+    u = await current_user(req)
+    alert = {
+        "alert_id": f"sos_{uuid.uuid4().hex[:10]}",
+        "user_id": u.user_id, "user_name": u.name, "role": u.role,
+        "trip_id": body.trip_id, "lat": body.lat, "lng": body.lng,
+        "status": "active", "created_at": datetime.now(timezone.utc),
+    }
+    await db.sos_alerts.insert_one(alert)
+    await notify(u.user_id, "security", "SOS sent", "Support has been notified.")
+    return {"ok": True, "alert_id": alert["alert_id"]}
+
+
+@api_router.get("/rides/{trip_id}/share")
+async def share_trip(trip_id: str, req: Request):
+    u = await current_user(req)
+    t = await db.trips.find_one({"trip_id": trip_id}, {"_id": 0})
+    if not t or u.user_id not in (t.get("customer_id"), t.get("driver_id")):
+        raise HTTPException(404, "Not found")
+    token = uuid.uuid4().hex[:12]
+    await db.trip_shares.insert_one({"token": token, "trip_id": trip_id,
+        "expires_at": datetime.now(timezone.utc) + timedelta(hours=24)})
+    return {"share_token": token, "url": f"/share/{token}"}
+
+
+class BlockIn(BaseModel):
+    user_id: str
+    reason: Optional[str] = None
+
+
+@api_router.post("/users/block")
+async def block_user(body: BlockIn, req: Request):
+    u = await current_user(req)
+    await db.users.update_one({"user_id": u.user_id}, {"$addToSet": {"blocked_users": body.user_id}})
+    await db.reports.insert_one({
+        "report_id": f"rep_{uuid.uuid4().hex[:8]}", "by": u.user_id, "target": body.user_id,
+        "reason": body.reason, "kind": "block", "at": datetime.now(timezone.utc),
+    })
+    return {"ok": True}
+
+
+# ---------- Support / Help ----------
+FAQS = [
+    {"q_en": "How do I book a ride?", "a_en": "Open the app, set your pickup and destination, pick a ride type, and tap Confirm.",
+     "q_ar": "كيف أطلب رحلة؟", "a_ar": "افتح التطبيق، حدد نقطة الانطلاق والوجهة، اختر نوع الرحلة، ثم اضغط تأكيد."},
+    {"q_en": "What payment methods are supported?", "a_en": "Cash, Card, Apple Pay, and STC Pay.",
+     "q_ar": "ما طرق الدفع المتاحة؟", "a_ar": "نقداً، بطاقة، Apple Pay، و STC Pay."},
+    {"q_en": "How can I report a safety concern?", "a_en": "Tap the SOS button during a trip or go to Help Center → Report.",
+     "q_ar": "كيف أبلغ عن مشكلة أمان؟", "a_ar": "اضغط زر SOS خلال الرحلة أو اذهب إلى مركز المساعدة → إبلاغ."},
+    {"q_en": "How do I become a driver?", "a_en": "Sign up, choose Drive with Aero, and complete vehicle & license verification.",
+     "q_ar": "كيف أصبح سائقاً؟", "a_ar": "سجّل، اختر قد مع إيرو، وأكمل توثيق المركبة والرخصة."},
+    {"q_en": "How are fares calculated?", "a_en": "Base fare + distance + time, shown as a breakdown before you confirm.",
+     "q_ar": "كيف تُحسب الأجرة؟", "a_ar": "أجرة أساسية + المسافة + الوقت، تظهر كتفاصيل قبل التأكيد."},
+]
+
+
+@api_router.get("/support/faqs")
+async def get_faqs():
+    return FAQS
+
+
+class TicketIn(BaseModel):
+    subject: str
+    message: str
+    kind: Literal["ride", "payment", "account", "other"] = "other"
+    trip_id: Optional[str] = None
+
+
+@api_router.post("/support/ticket")
+async def create_ticket(body: TicketIn, req: Request):
+    u = await current_user(req)
+    tk = {
+        "ticket_id": f"tkt_{uuid.uuid4().hex[:10]}",
+        "user_id": u.user_id, "user_name": u.name,
+        "subject": body.subject, "message": body.message, "kind": body.kind,
+        "trip_id": body.trip_id, "status": "open", "messages": [
+            {"from": "user", "text": body.message, "at": datetime.now(timezone.utc)}
+        ],
+        "created_at": datetime.now(timezone.utc),
+    }
+    await db.tickets.insert_one(tk)
+    tk.pop("_id", None)
+    await notify(u.user_id, "support", "Ticket received",
+                 f"We'll reply soon. Ticket {tk['ticket_id'][-6:]}")
+    return tk
+
+
+@api_router.get("/support/tickets")
+async def my_tickets(req: Request):
+    u = await current_user(req)
+    return await db.tickets.find({"user_id": u.user_id}, {"_id": 0}).sort("created_at", -1).to_list(100)
+
+
+class TicketMsg(BaseModel):
+    text: str
+
+
+@api_router.post("/support/tickets/{ticket_id}/reply")
+async def ticket_reply(ticket_id: str, body: TicketMsg, req: Request):
+    u = await current_user(req)
+    tk = await db.tickets.find_one({"ticket_id": ticket_id, "user_id": u.user_id}, {"_id": 0})
+    if not tk: raise HTTPException(404, "Not found")
+    await db.tickets.update_one(
+        {"ticket_id": ticket_id},
+        {"$push": {"messages": {"from": "user", "text": body.text, "at": datetime.now(timezone.utc)}}},
+    )
+    # Auto-response (simulated agent)
+    await db.tickets.update_one(
+        {"ticket_id": ticket_id},
+        {"$push": {"messages": {"from": "agent", "text": "Thanks for your message — our team will get back to you shortly.",
+                                "at": datetime.now(timezone.utc)}}},
+    )
+    return {"ok": True}
+
+
+# ---------- Payment methods ----------
+class PayMethodIn(BaseModel):
+    kind: PaymentMethod
+    label: str
+    last4: Optional[str] = None
+    brand: Optional[str] = None
+
+
+@api_router.get("/payments/methods")
+async def list_methods(req: Request):
+    u = await current_user(req)
+    return await db.pay_methods.find({"user_id": u.user_id}, {"_id": 0}).to_list(20)
+
+
+@api_router.post("/payments/methods")
+async def add_method(body: PayMethodIn, req: Request):
+    u = await current_user(req)
+    m = {"method_id": f"pm_{uuid.uuid4().hex[:10]}", "user_id": u.user_id,
+         "kind": body.kind, "label": body.label, "last4": body.last4, "brand": body.brand,
+         "created_at": datetime.now(timezone.utc)}
+    await db.pay_methods.insert_one(m); m.pop("_id", None)
+    return m
+
+
+@api_router.delete("/payments/methods/{method_id}")
+async def del_method(method_id: str, req: Request):
+    u = await current_user(req)
+    await db.pay_methods.delete_one({"method_id": method_id, "user_id": u.user_id})
+    return {"ok": True}
+
+
+@api_router.get("/payments/history")
+async def pay_history(req: Request):
+    u = await current_user(req)
+    trips = await db.trips.find(
+        {"customer_id": u.user_id, "status": "completed"},
+        {"_id": 0, "trip_id": 1, "price": 1, "currency": 1, "payment_method": 1, "created_at": 1, "pickup": 1, "destination": 1},
+    ).sort("created_at", -1).to_list(200)
+    return trips
+
+
+class RefundIn(BaseModel):
+    trip_id: str
+    reason: str
+
+
+@api_router.post("/payments/refund")
+async def request_refund(body: RefundIn, req: Request):
+    u = await current_user(req)
+    t = await db.trips.find_one({"trip_id": body.trip_id, "customer_id": u.user_id}, {"_id": 0})
+    if not t: raise HTTPException(404, "Not found")
+    rf = {"refund_id": f"rf_{uuid.uuid4().hex[:10]}", "user_id": u.user_id, "trip_id": body.trip_id,
+          "amount": t["price"], "currency": t.get("currency", "SAR"), "reason": body.reason,
+          "status": "pending", "created_at": datetime.now(timezone.utc)}
+    await db.refunds.insert_one(rf); rf.pop("_id", None)
+    await notify(u.user_id, "payments", "Refund requested", f"We're reviewing trip {body.trip_id[-6:]}.")
+    return rf
+
+
+@api_router.get("/payments/invoice/{trip_id}")
+async def invoice(trip_id: str, req: Request):
+    u = await current_user(req)
+    t = await db.trips.find_one({"trip_id": trip_id, "customer_id": u.user_id}, {"_id": 0})
+    if not t: raise HTTPException(404, "Not found")
+    return {
+        "invoice_no": f"INV-{trip_id[-8:].upper()}",
+        "date": t.get("created_at"),
+        "customer": u.name,
+        "from": t.get("pickup", {}).get("address"),
+        "to": t.get("destination", {}).get("address"),
+        "distance_km": t.get("distance_km"),
+        "duration_min": t.get("duration_min"),
+        "breakdown": t.get("breakdown"),
+        "total": t.get("price"),
+        "currency": t.get("currency", "SAR"),
+        "payment_method": t.get("payment_method", "cash"),
+    }
+
+
+# ---------- Currency conversion ----------
+@api_router.get("/currency/rates")
+async def rates():
+    return {"base": "SAR", "rates": FX_RATES}
+
+
+class ConvertIn(BaseModel):
+    amount: float
+    from_currency: str = "SAR"
+    to_currency: str
+
+
+@api_router.post("/currency/convert")
+async def convert(body: ConvertIn):
+    if body.from_currency not in FX_RATES or body.to_currency not in FX_RATES:
+        raise HTTPException(400, "Unsupported currency")
+    # Convert via SAR base
+    sar_amount = body.amount / FX_RATES[body.from_currency]
+    converted = sar_amount * FX_RATES[body.to_currency]
+    return {"amount": round(converted, 2), "currency": body.to_currency}
+
+
+# ---------- Driver earnings breakdown ----------
+@api_router.get("/driver/earnings/breakdown")
+async def earnings_breakdown(req: Request):
+    u = await current_user(req)
+    if u.role != "driver": raise HTTPException(403, "Driver only")
+    now = datetime.now(timezone.utc)
+    week_start = now - timedelta(days=7)
+    month_start = now - timedelta(days=30)
+    trips = await db.trips.find({"driver_id": u.user_id, "status": "completed"}, {"_id": 0}).to_list(500)
+    def _dt(v):
+        if isinstance(v, datetime): return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
+        return now
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    def sum_since(s): return round(sum(t["price"] for t in trips if _dt(t.get("created_at")) >= s), 2)
+    return {
+        "today": sum_since(today_start),
+        "week": sum_since(week_start),
+        "month": sum_since(month_start),
+        "total": round(sum(t["price"] for t in trips), 2),
+        "trips": len(trips),
+        "currency": "SAR",
+    }
+
+
+class WithdrawIn(BaseModel):
+    amount: float
+    method: Literal["bank", "stc_pay"] = "bank"
+    account: Optional[str] = None
+
+
+@api_router.post("/driver/withdraw")
+async def withdraw(body: WithdrawIn, req: Request):
+    u = await current_user(req)
+    if u.role != "driver": raise HTTPException(403, "Driver only")
+    w = {"withdraw_id": f"wd_{uuid.uuid4().hex[:10]}", "user_id": u.user_id,
+         "amount": body.amount, "method": body.method, "account": body.account,
+         "status": "pending", "currency": "SAR", "created_at": datetime.now(timezone.utc)}
+    await db.withdrawals.insert_one(w); w.pop("_id", None)
+    await notify(u.user_id, "payments", "Withdrawal requested", f"{body.amount} SAR via {body.method}")
+    return w
 
 
 app.include_router(api_router)
+
+
+@app.get("/api/")
+async def root(): return {"message": "Aero Ride API", "status": "ok", "currency": "SAR"}
 app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 logging.basicConfig(level=logging.INFO)
 

@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 3 (secure platform) validated end-to-end. Backend: 28/28 pytest passed covering profile (name/phone/currency/notif_prefs persisted; bad currency=400), driver profile (license+id => verified=true; customer=403), OTP send returns 6-digit dev_code -> verify sets phone_verified; wrong code=400, PIN set+verify (200/401), 2FA toggle persisted, /auth/sessions list (no session_token leaked), SOS alert created (alert_id), trip /share returns share_token for participant + 404 for stranger, users/block recorded in blocked_users + reports collection, FAQs >=5 with EN+AR fields, support tickets create/list/reply (auto-agent reply appended), payment methods CRUD across cash/card/apple_pay/stc_pay (invalid kind=422), payment history lists completed trips, refund pending in SAR, invoice INV-* with breakdown+totals, currency rates SAR base + 5 currencies, SAR->USD conversion (~26.7), driver earnings breakdown today/week/month/total/trips/SAR, driver withdrawal pending, logout-all revokes ALL sessions for user (verified subsequent /auth/me=401, then re-seeded canonical sessions). Frontend (mobile 390x844, customer): Profile -> Settings shows Account/Preferences (lang+theme+currency chips SAR/USD/EUR/AED/GBP)/Security (2FA switch, change PIN, verify phone, logout-all)/Notifications (rides/payments/security/promos)/Payment (methods/history)/Support (help/contact). profile-edit saved name+phone. change-pin set 1234 (matched). verify-phone -> send-otp surfaced dev code in UI, verify-otp succeeded and Settings now shows 'Verified' on Verify Phone row. help screen shows 5 FAQs and created TEST_UI_Subject ticket (visible in MY TICKETS). payment-methods added Visa 4242 alongside existing methods. payment-history listed 4 completed trips with Invoice and Request Refund buttons and SAR amounts.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "global", "issues": ["Cosmetic-only RN-web deprecation warnings remain: 'shadow*' style props (use boxShadow) and 'props.pointerEvents' (use style.pointerEvents). No functional impact."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter3_backend.py",
+    "/app/backend/tests/test_aero_backend.py",
+    "/app/test_reports/pytest/iter3_results.xml"
+  ],
+  "action_items": [
+    "(Optional cosmetic) Replace deprecated RN-web style props (shadow*, pointerEvents) to silence warnings."
+  ],
+  "critical_code_review_comments": [
+    "server.py grew to 880 lines — still a single module. Strongly recommend splitting into routers (auth, profile, rides, driver, payments, support, safety, currency, admin) before iteration 4.",
+    "PIN uses sha256 unsalted (server.py:561). For production a per-user salt + slow KDF (bcrypt/argon2) is required. OK for current stored-only/dev scope but flag for hardening.",
+    "OTP /auth/otp/send returns dev_code in the response body (intentional per spec: 'simulated, dev_code returned'). Must be removed before going live.",
+    "/auth/sessions correctly projects out session_token (verified). user_id is exposed which is fine.",
+    "/rides/{trip_id}/share returns 404 for non-participants — acceptable but consider 403 for clarity.",
+    "/payments/methods has no MAX cap; consider rate limiting / cap to avoid spam.",
+    "Mocked-only (correctly noted in review_request): payment gateways (Stripe/Apple Pay/STC Pay) not wired — methods stored only; refunds and withdrawals stored as status=pending; OTP simulated; push notifications not integrated (frontend polls)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter3_backend.py"
+  ],
+  "success_rate": {
+    "backend": "100% (28/28)",
+    "frontend": "100% (Settings sections, currency pills, profile-edit save, change-pin, verify-phone OTP roundtrip with dev_code, help FAQs + ticket creation, payment-methods add card, payment-history list with invoice/refund buttons)"
+  },
+  "seed_data_creation": "No new seed data. Reused canonical test_session_aero_{customer,driver,admin}. The destructive logout-all test (test_zzz_*) inserts a temp customer session, calls logout-all to revoke ALL customer sessions (including canonical), then re-seeds via pymongo so downstream agents see working tokens. A session-scoped autouse fixture also re-seeds at session start and teardown for safety. New side-effect data (TEST_*): blocked_users entry, several payment_methods (including Personal Visa from prior runs), tickets, refunds (pending), withdrawals (pending), SOS alert.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All iteration-3 endpoints under /api are stable. Re-seed canonical sessions before destructive auth tests using pymongo upsert on user_sessions (see _ensure_sessions fixture in test_iter3_backend.py). To test SOS + Share Trip UI on customer home, you need an 'accepted' trip — drive: /rides/request (customer) -> /rides/{id}/accept (driver). Then on the customer Home screen, look for testIDs sos-btn and share-trip during the accepted/on_trip phase. Driver-setup screen is at /driver-setup (testIDs: upload-license, upload-id, save-driver) — only useful when logged in as the driver token. Currency pills in Settings: cur-SAR/USD/EUR/AED/GBP. Help tabs: tab-faq, tab-support; ticket inputs: ticket-subject/ticket-message/send-ticket. PaymentMethods: add-method opens modal with pm-kind-{cash|card|apple_pay|stc_pay}, pm-label, pm-last4, pm-save. Verify Phone: send-otp returns dev code shown in UI; otp-code + verify-otp.",
+  "rca_of_issue": "N/A — no failures."
+}

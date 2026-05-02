@@ -290,6 +290,30 @@ export default function CustomerHome() {
                 <Text style={[styles.ratingTxt, { color: colors.textPrimary }]}>{trip.driver.rating}</Text>
               </View>
             </View>
+            <View style={styles.safetyRow}>
+              <Pressable
+                testID="sos-btn"
+                onPress={async () => {
+                  await api('/api/safety/sos', { method: 'POST', body: { trip_id: trip.trip_id, lat: pickup.lat, lng: pickup.lng }, token: sessionToken });
+                  if (typeof window !== 'undefined' && window.alert) window.alert(t('sos') + ': sent');
+                }}
+                style={[styles.safetyBtn, { backgroundColor: colors.error + '18', borderColor: colors.error }]}
+              >
+                <Ionicons name="warning" size={18} color={colors.error} />
+                <Text style={[styles.safetyTxt, { color: colors.error }]}>{t('sos')}</Text>
+              </Pressable>
+              <Pressable
+                testID="share-trip"
+                onPress={async () => {
+                  const r = await api(`/api/rides/${trip.trip_id}/share`, { token: sessionToken });
+                  if (typeof window !== 'undefined' && window.alert) window.alert('Share: ' + (r.url || r.share_token));
+                }}
+                style={[styles.safetyBtn, { backgroundColor: colors.primary + '18', borderColor: colors.primary }]}
+              >
+                <Ionicons name="share-social" size={18} color={colors.primary} />
+                <Text style={[styles.safetyTxt, { color: colors.primary }]}>{t('share_trip')}</Text>
+              </Pressable>
+            </View>
           </View>
         )}
 
@@ -368,4 +392,7 @@ const styles = StyleSheet.create({
   chip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 24, gap: 8 },
   chipDot: { width: 8, height: 8, borderRadius: 4 },
   starRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 12 },
+  safetyRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  safetyBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 12, borderRadius: 14, borderWidth: 1, gap: 6, marginEnd: 6 },
+  safetyTxt: { fontWeight: '800', fontSize: 13, marginStart: 6 },
 });

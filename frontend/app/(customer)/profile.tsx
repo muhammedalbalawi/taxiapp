@@ -54,6 +54,16 @@ export default function Profile() {
           </View>
         </View>
 
+        <Section title={t('settings')}>
+          <Row
+            testID="open-settings"
+            icon="settings"
+            label={t('settings')}
+            value=""
+            onPress={() => router.push('/settings')}
+          />
+        </Section>
+
         <Section title={t('notifications')}>
           <Row
             testID="open-notifs"
